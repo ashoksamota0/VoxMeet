@@ -78,7 +78,7 @@ const Navbar = () => {
             Welcome, {userName}
           </span>
 
-          <UserButton afterSignOutUrl="/login" />
+          <UserButton afterSignOutUrl="/dashboard" />
         </div>
       )}
     </header>

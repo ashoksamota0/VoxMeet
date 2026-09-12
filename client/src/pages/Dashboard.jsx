@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import { useAuth, useUser } from "@clerk/react";
+import { useAuth, useUser, useClerk } from "@clerk/react";
 import api from "../config/api.js";
 
 const Dashboard = () => {
@@ -23,6 +23,7 @@ const Dashboard = () => {
   const userEmail = user?.primaryEmailAddress?.emailAddress || "";
 
   const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { openSignIn } = useClerk();
 
   const navigate = useNavigate();
 
@@ -65,7 +66,12 @@ const Dashboard = () => {
 
   // Create meeting
   const handleCreateMeeting = async () => {
-    if (!isLoaded || !isSignedIn) return;
+    if (!isLoaded) return;
+
+    if (!isSignedIn) {
+      openSignIn();
+      return;
+    }
 
     setIsCreating(true);
 
@@ -74,20 +80,13 @@ const Dashboard = () => {
 
       const res = await api.post(
         "/api/meetings",
-        {
-          title: `${userName}'s Meeting`,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
+        { title: `${userName}'s Meeting` },
+        { headers: { Authorization: `Bearer ${token}` } },
       );
 
       const meetingId = res.data.meeting.meetingId;
 
       toast.success("Meeting created!");
-
       navigate(`/meeting/${meetingId}`);
     } catch (error) {
       toast.error(error.response?.data?.error || error.message);
@@ -104,6 +103,13 @@ const Dashboard = () => {
 
     if (!/^[a-z]{3}(?:-[a-z]{3}){2}$/.test(cleanId)) {
       toast.error("Please enter a valid Meeting ID");
+      return;
+    }
+
+    if (!isLoaded) return;
+
+    if (!isSignedIn) {
+      openSignIn();
       return;
     }
 
