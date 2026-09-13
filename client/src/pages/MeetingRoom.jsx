@@ -19,6 +19,7 @@ const MeetingRoom = () => {
 
   const userdata = useMemo(() => {
     if (!user) return null;
+
     return {
       id: user.id,
       name:
@@ -46,18 +47,24 @@ const MeetingRoom = () => {
     const fetchMeeting = async () => {
       try {
         const token = await getToken();
+
         const res = await api.get(`/api/meetings/${meetingId}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         });
+
         if (res.data.meeting.status === "ended") {
           toast.error("This meeting has ended");
           navigate("/dashboard");
           return;
         }
+
         setMeeting(res.data.meeting);
       } catch (error) {
         const errorMsg =
           error.response?.data?.error || "Meeting not found or has ended";
+
         toast.error(errorMsg);
         navigate("/dashboard");
       } finally {
@@ -88,6 +95,7 @@ const MeetingRoom = () => {
     useChat(meetingId, userdata);
 
   const hostId = meeting?.host?.id || meeting?.host;
+
   const isHost = Boolean(
     userdata?.id && hostId && hostId.toString() === userdata.id.toString(),
   );
@@ -110,12 +118,17 @@ const MeetingRoom = () => {
   return (
     <div className="h-screen w-screen bg-slate-100 text-slate-900 flex flex-col overflow-hidden relative font-sans">
       {/* Top Bar */}
-      <header className="w-full bg-white/90 backdrop-blur-md px-6 py-3 border-b border-slate-200 flex items-center justify-between z-30 shadow-xs">
-        <div className="flex items-center gap-3">
-          <h2 className="text-base font-semibold text-slate-900 tracking-tight">
-            Instant Meeting ({meetingId})
+      <header className="w-full bg-white/90 backdrop-blur-md px-3 sm:px-6 py-3 border-b border-slate-200 flex items-center justify-between z-30 shadow-xs">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <h2 className="text-sm sm:text-base font-semibold text-slate-900 tracking-tight truncate max-w-[45vw] sm:max-w-none">
+            {meeting?.title || "Instant Meeting"}
           </h2>
-          <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+
+          <span className="size-1.5 shrink-0 rounded-full bg-emerald-500 animate-pulse" />
+
+          <span className="shrink-0 text-[10px] sm:text-[11px] font-mono text-slate-400 bg-slate-100 px-2 py-1 rounded-md">
+            {meetingId}
+          </span>
         </div>
       </header>
 
