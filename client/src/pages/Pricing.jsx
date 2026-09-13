@@ -25,7 +25,7 @@ const plans = [
     name: "Premium",
     description: "For teams and users who need more from their meetings.",
     price: "₹499",
-    period: "per month",
+    period: "forever",
     features: [
       "Unlimited meetings",
       "Up to 100 participants per meeting",
