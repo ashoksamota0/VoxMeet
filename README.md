@@ -79,17 +79,17 @@ Built with **React, Node.js, Express, PostgreSQL, WebRTC, Socket.io, Clerk, and 
       │          Backend           │
       └────────────┬───────────────┘
                    │
-          ┌────────┴─────────┐
-          ▼                  ▼
-     PostgreSQL         Socket.io
-       (Neon)            Signaling
-                              │
-                              ▼
-                         WebRTC Media
-                              │
-                 ┌────────────┼────────────┐
-                 ▼            ▼            ▼
-            Participant A Participant B Participant C
+          ┌────────┴─────────────┐
+          ▼                      ▼
+     PostgreSQL              Socket.io
+       (Neon)                Signaling
+                                 │
+                                 ▼
+                            WebRTC Media
+                                 │
+                 ┌───────────────┼───────────────┐
+                 ▼               ▼               ▼
+            Participant A    Participant B    Participant C
 ```
 
 
