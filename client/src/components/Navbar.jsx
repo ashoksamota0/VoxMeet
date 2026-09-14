@@ -29,6 +29,7 @@ const Navbar = () => {
     { name: "Pricing", path: "/pricing" },
     { name: "About Us", path: "/about" },
     { name: "Contact Us", path: "/contact" },
+    { name: "FAQ", path: "/faq" },
     { name: "Privacy Policy", path: "/privacy" },
   ];
 
