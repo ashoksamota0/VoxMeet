@@ -456,7 +456,7 @@ const Dashboard = () => {
 ================================================================ */
 
 const Feature = ({ icon, title, subtitle }) => (
-  <div className="flex min-w-0 flex-col items-start">
+  <div className="flex min-w-0 flex-col items-center sm:items-start">
     <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full border border-violet-100 bg-white text-violet-600 shadow-sm">
       {React.cloneElement(icon, {
         className: "h-4 w-4",

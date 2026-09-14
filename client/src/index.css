@@ -72,15 +72,6 @@
    BACKGROUND ORBS
 ============================================================ */
 
-/* .vox-bg-orb {
-  position: absolute;
-
-  border-radius: 9999px;
-
-  pointer-events: none;
-
-  filter: blur(1px);
-} */
 .vox-bg-orb {
   position: absolute;
 
@@ -93,22 +84,6 @@
   z-index: 0;
 }
 
-/* .vox-bg-orb-one {
-  width: 390px;
-  height: 390px;
-
-  right: -150px;
-  top: 90px;
-
-  z-index: -2;
-
-  background: radial-gradient(
-    circle,
-    rgba(196, 181, 253, 0.36),
-    rgba(196, 181, 253, 0.04) 70%,
-    transparent 75%
-  );
-} */
 .vox-bg-orb-one {
   width: 300px;
   height: 270px;
@@ -124,22 +99,6 @@
   );
 }
 
-/* .vox-bg-orb-two {
-  width: 340px;
-  height: 340px;
-
-  left: -175px;
-  bottom: 30px;
-
-  z-index: -2;
-
-  background: radial-gradient(
-    circle,
-    rgba(191, 219, 254, 0.42),
-    rgba(191, 219, 254, 0.04) 70%,
-    transparent 75%
-  );
-} */
 .vox-bg-orb-two {
   width: 340px;
   height: 340px;
@@ -631,20 +590,7 @@
   .vox-floating-card {
     width: 56px;
     height: 56px;
-
     border-radius: 18px;
-  }
-
-  .vox-floating-camera {
-    left: 8%;
-  }
-
-  .vox-floating-users {
-    left: 2%;
-  }
-
-  .vox-floating-screen {
-    right: 10%;
   }
 
   .vox-account-card {
@@ -659,87 +605,141 @@
 @media (max-width: 640px) {
   .vox-dashboard {
     min-height: calc(100vh - 72px);
-
     overflow: hidden;
   }
 
+  /* Smaller glow for narrow screens */
   .vox-visual-glow {
-    width: 310px;
-    height: 310px;
+    width: 300px;
+    height: 300px;
   }
 
+  /* Central logo */
   .vox-logo-card {
-    width: 150px;
-    height: 150px;
-
-    border-radius: 32px;
+    width: 140px;
+    height: 140px;
+    border-radius: 30px;
   }
 
   .vox-logo-inner {
-    width: 84px;
-    height: 84px;
-
-    border-radius: 24px;
+    width: 78px;
+    height: 78px;
+    border-radius: 22px;
   }
 
   .vox-logo-inner img {
-    width: 60px;
-    height: 60px;
+    width: 56px;
+    height: 56px;
   }
 
   .vox-logo-label {
-    margin-top: 7px;
-
+    margin-top: 6px;
     font-size: 9px;
   }
 
+  /* Smaller floating icons */
   .vox-floating-card {
-    width: 46px;
-    height: 46px;
-
+    width: 44px;
+    height: 44px;
     border-radius: 14px;
   }
 
   .vox-floating-card svg {
-    width: 17px;
-    height: 17px;
+    width: 16px;
+    height: 16px;
   }
 
+  /* Keep icons positioned relative to the orbit center */
   .vox-floating-camera {
-    top: 14%;
-    left: 1%;
+    left: calc(50% - 142px);
+    top: calc(44% - 142px);
+    transform: rotate(-7deg);
+  }
+
+  .vox-floating-camera:hover {
+    transform: rotate(-2deg) translateY(-5px) scale(1.04);
   }
 
   .vox-floating-users {
-    top: 43%;
-    left: -1%;
+    left: calc(50% - 156px);
+    top: 52%;
+    transform: translate(-50%, -50%) rotate(6deg);
+  }
+
+  .vox-floating-users:hover {
+    transform: translate(-50%, -50%) rotate(2deg) translateY(-5px) scale(1.04);
   }
 
   .vox-floating-chat {
-    right: 0;
-    bottom: 26%;
+    left: calc(50% + 112px);
+    right: auto;
+    top: calc(42% - 108px);
+    bottom: auto;
+    transform: rotate(6deg);
+  }
+
+  .vox-floating-chat:hover {
+    transform: rotate(2deg) translateY(-5px) scale(1.04);
   }
 
   .vox-floating-screen {
-    right: 4%;
-    top: 14%;
+    left: calc(53% + 125px);
+    right: auto;
+    top: calc(46% + 11px);
+    transform: rotate(-5deg);
   }
 
+  .vox-floating-screen:hover {
+    transform: rotate(-2deg) translateY(-5px) scale(1.04);
+  }
+
+  /* Orbit rings */
+  .vox-orbit-ring {
+    left: 50%;
+    top: 44%;
+  }
+
+  .vox-orbit-ring-one {
+    width: 270px;
+    height: 270px;
+  }
+
+  .vox-orbit-ring-two {
+    width: 350px;
+    height: 350px;
+  }
+
+  /* Orbit arrow */
+  .vox-orbit-arrow {
+    top: 10%;
+    right: 23%;
+    transform: rotate(-11deg) scale(0.85);
+  }
+
+  /* Handwritten note */
   .vox-note-one {
-    top: 5%;
-    right: 3%;
+    top: 4%;
+    right: 15%;
+    font-size: 11px;
   }
 
+  .vox-note svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* Account / stats card */
   .vox-account-card {
-    right: 0;
-
+    right: 50%;
     bottom: -10px;
-
-    width: min(285px, 72vw);
-
+    transform: translateX(50%);
+    width: min(285px, 82vw);
     padding: 17px;
-
     border-radius: 22px;
+  }
+
+  .vox-account-card:hover {
+    transform: translateX(50%) translateY(-3px);
   }
 }
 
