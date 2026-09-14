@@ -90,7 +90,7 @@ Built with **React, Node.js, Express, PostgreSQL, WebRTC, Socket.io, Clerk, and 
                  ┌────────────┼────────────┐
                  ▼            ▼            ▼
             Participant A Participant B Participant C
-
+```
 
 
 ## 🎥 Real-Time Video & Screen Sharing
@@ -184,7 +184,7 @@ VoxMeet/
     ├── routes/
     ├── server.js
     └── socket.js
-
+```
 
 ## 🌐 Deployment
 
