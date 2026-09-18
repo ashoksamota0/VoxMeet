@@ -236,6 +236,7 @@ const MeetingRoom = () => {
   const [loadingMeeting, setLoadingMeeting] = useState(true);
   const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
   const [meetingDuration, setMeetingDuration] = useState(0);
+  const [meetingDuration, setMeetingDuration] = useState(0);
 
   // Fetch meeting details to verify validity BEFORE enabling WebRTC camera access
   useEffect(() => {
@@ -272,10 +273,11 @@ const MeetingRoom = () => {
 
   // Meeting duration timer
   useEffect(() => {
-    if (!meeting?.created_at) return;
+    if (!meeting?.createdAt) return;
 
     const updateDuration = () => {
-      const startTime = new Date(meeting.created_at).getTime();
+      const startTime = new Date(meeting.createdAt).getTime();
+
       const elapsed = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
 
       setMeetingDuration(elapsed);
@@ -286,7 +288,7 @@ const MeetingRoom = () => {
     const timer = setInterval(updateDuration, 1000);
 
     return () => clearInterval(timer);
-  }, [meeting?.created_at]);
+  }, [meeting?.createdAt]);
 
   // Format meeting duration as HH:MM:SS
   const formatDuration = (seconds) => {
@@ -354,6 +356,11 @@ const MeetingRoom = () => {
 
           <span className="shrink-0 text-[10px] sm:text-[11px] font-mono text-slate-400 bg-slate-100 px-2 py-1 rounded-md">
             {meetingId}
+          </span>
+
+          {/* Meeting Duration */}
+          <span className="shrink-0 text-[10px] sm:text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-1 rounded-md">
+            {formatDuration(meetingDuration)}
           </span>
 
           {/* Meeting Duration */}
