@@ -13,53 +13,476 @@ const ICE_SERVERS = {
 export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
   const [localStream, setLocalStream] = useState(null);
   const [remoteUsers, setRemoteUsers] = useState([]);
+
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
+
+  const [audioDeviceAvailable, setAudioDeviceAvailable] = useState(true);
+  const [videoDeviceAvailable, setVideoDeviceAvailable] = useState(true);
+
+  const [audioPermissionDenied, setAudioPermissionDenied] = useState(false);
+  const [videoPermissionDenied, setVideoPermissionDenied] = useState(false);
+
   const [screenSharing, setScreenSharing] = useState(false);
 
   const peersRef = useRef(new Map());
+
   const localStreamRef = useRef(null);
   const cameraStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
 
-  // Initialize local camera + microphone
-  const initLocalStream = useCallback(async () => {
+  const audioPermissionDeniedRef = useRef(false);
+  const videoPermissionDeniedRef = useRef(false);
+
+  // --------------------------------------------------
+  // Update local stream
+  // --------------------------------------------------
+
+  const updateLocalStream = useCallback((audioTrack, videoTrack) => {
+    const tracks = [];
+
+    if (audioTrack) {
+      tracks.push(audioTrack);
+    }
+
+    if (videoTrack) {
+      tracks.push(videoTrack);
+    }
+
+    const newStream = new MediaStream(tracks);
+
+    localStreamRef.current = newStream;
+    setLocalStream(newStream);
+
+    return newStream;
+  }, []);
+
+  // --------------------------------------------------
+  // Restore microphone
+  // --------------------------------------------------
+
+  const restoreMicrophone = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+      const audioStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
 
-      cameraStreamRef.current = stream;
-      localStreamRef.current = stream;
+      const newAudioTrack = audioStream.getAudioTracks()[0];
 
-      setLocalStream(stream);
-      return stream;
+      if (!newAudioTrack) {
+        return false;
+      }
+
+      const currentVideoTrack =
+        cameraStreamRef.current?.getVideoTracks()[0] || null;
+
+      cameraStreamRef.current = new MediaStream([
+        newAudioTrack,
+        ...(currentVideoTrack ? [currentVideoTrack] : []),
+      ]);
+
+      updateLocalStream(newAudioTrack, currentVideoTrack);
+
+      // Replace audio track in WebRTC peers
+      peersRef.current.forEach((peer) => {
+        const audioSender = peer
+          .getSenders()
+          .find((sender) => sender.track?.kind === "audio");
+
+        if (audioSender) {
+          audioSender.replaceTrack(newAudioTrack);
+        }
+      });
+
+      setAudioEnabled(true);
+      setAudioDeviceAvailable(true);
+      setAudioPermissionDenied(false);
+
+      audioPermissionDeniedRef.current = false;
+
+      socket.emit("toggle-audio", {
+        roomId,
+        audioEnabled: true,
+      });
+
+      return true;
     } catch (error) {
-      toast.error("Could not access camera/microphone");
-      console.error("Media devices access error:", error);
+      console.error("Could not restore microphone:", error);
 
-      // Fallback: try audio only
-      try {
-        const audioStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-        });
+      return false;
+    }
+  }, [roomId, updateLocalStream]);
 
-        cameraStreamRef.current = audioStream;
-        localStreamRef.current = audioStream;
+  // --------------------------------------------------
+  // Restore camera
+  // --------------------------------------------------
 
-        setLocalStream(audioStream);
-        setVideoEnabled(false);
+  const restoreCamera = useCallback(async () => {
+    try {
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+      });
 
-        return audioStream;
-      } catch (err) {
-        console.error("Audio-only fallback error:", err);
-        return null;
+      const newVideoTrack = videoStream.getVideoTracks()[0];
+
+      if (!newVideoTrack) {
+        return false;
+      }
+
+      const currentAudioTrack =
+        cameraStreamRef.current?.getAudioTracks()[0] || null;
+
+      cameraStreamRef.current = new MediaStream([
+        ...(currentAudioTrack ? [currentAudioTrack] : []),
+        newVideoTrack,
+      ]);
+
+      updateLocalStream(currentAudioTrack, newVideoTrack);
+
+      // Replace video track in WebRTC peers
+      peersRef.current.forEach((peer) => {
+        const videoSender = peer
+          .getSenders()
+          .find((sender) => sender.track?.kind === "video");
+
+        if (videoSender) {
+          videoSender.replaceTrack(newVideoTrack);
+        }
+      });
+
+      setVideoEnabled(true);
+      setVideoDeviceAvailable(true);
+      setVideoPermissionDenied(false);
+
+      videoPermissionDeniedRef.current = false;
+
+      socket.emit("toggle-video", {
+        roomId,
+        videoEnabled: true,
+      });
+
+      return true;
+    } catch (error) {
+      console.error("Could not restore camera:", error);
+
+      return false;
+    }
+  }, [roomId, updateLocalStream]);
+
+  // --------------------------------------------------
+  // Remove microphone
+  // --------------------------------------------------
+
+  const removeMicrophone = useCallback(() => {
+    const audioTrack = cameraStreamRef.current?.getAudioTracks()[0];
+
+    if (audioTrack) {
+      audioTrack.stop();
+    }
+
+    const currentVideoTrack =
+      cameraStreamRef.current?.getVideoTracks()[0] || null;
+
+    cameraStreamRef.current = new MediaStream(
+      currentVideoTrack ? [currentVideoTrack] : [],
+    );
+
+    updateLocalStream(null, currentVideoTrack);
+
+    // Remove audio from WebRTC peers
+    peersRef.current.forEach((peer) => {
+      const audioSender = peer
+        .getSenders()
+        .find((sender) => sender.track?.kind === "audio");
+
+      if (audioSender) {
+        audioSender.replaceTrack(null);
+      }
+    });
+
+    setAudioEnabled(false);
+
+    socket.emit("toggle-audio", {
+      roomId,
+      audioEnabled: false,
+    });
+  }, [roomId, updateLocalStream]);
+
+  // --------------------------------------------------
+  // Remove camera
+  // --------------------------------------------------
+
+  const removeCamera = useCallback(() => {
+    const videoTrack = cameraStreamRef.current?.getVideoTracks()[0];
+
+    if (videoTrack) {
+      videoTrack.stop();
+    }
+
+    const currentAudioTrack =
+      cameraStreamRef.current?.getAudioTracks()[0] || null;
+
+    cameraStreamRef.current = new MediaStream(
+      currentAudioTrack ? [currentAudioTrack] : [],
+    );
+
+    updateLocalStream(currentAudioTrack, null);
+
+    // Remove video from WebRTC peers
+    peersRef.current.forEach((peer) => {
+      const videoSender = peer
+        .getSenders()
+        .find((sender) => sender.track?.kind === "video");
+
+      if (videoSender) {
+        videoSender.replaceTrack(null);
+      }
+    });
+
+    setVideoEnabled(false);
+
+    socket.emit("toggle-video", {
+      roomId,
+      videoEnabled: false,
+    });
+  }, [roomId, updateLocalStream]);
+
+  // --------------------------------------------------
+  // Initialize microphone and camera independently
+  // --------------------------------------------------
+
+  const initLocalStream = useCallback(async () => {
+    let audioTrack = null;
+    let videoTrack = null;
+
+    // Request microphone independently
+    try {
+      const audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+
+      audioTrack = audioStream.getAudioTracks()[0] || null;
+
+      if (audioTrack) {
+        setAudioEnabled(true);
+        setAudioDeviceAvailable(true);
+        setAudioPermissionDenied(false);
+
+        audioPermissionDeniedRef.current = false;
+      }
+    } catch (error) {
+      console.error("Microphone access error:", error);
+
+      setAudioEnabled(false);
+
+      if (error?.name === "NotAllowedError") {
+        setAudioPermissionDenied(true);
+        audioPermissionDeniedRef.current = true;
       }
     }
+
+    // Request camera independently
+    try {
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+      });
+
+      videoTrack = videoStream.getVideoTracks()[0] || null;
+
+      if (videoTrack) {
+        setVideoEnabled(true);
+        setVideoDeviceAvailable(true);
+        setVideoPermissionDenied(false);
+
+        videoPermissionDeniedRef.current = false;
+      }
+    } catch (error) {
+      console.error("Camera access error:", error);
+
+      setVideoEnabled(false);
+
+      if (error?.name === "NotAllowedError") {
+        setVideoPermissionDenied(true);
+        videoPermissionDeniedRef.current = true;
+      }
+    }
+
+    // Store available tracks
+    cameraStreamRef.current = new MediaStream([
+      ...(audioTrack ? [audioTrack] : []),
+      ...(videoTrack ? [videoTrack] : []),
+    ]);
+
+    localStreamRef.current = cameraStreamRef.current;
+
+    setLocalStream(cameraStreamRef.current);
+
+    return cameraStreamRef.current;
   }, []);
 
-  // Create RTCPeerConnection for a target socket
+  // --------------------------------------------------
+  // Device and permission monitoring
+  // --------------------------------------------------
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    let permissionListeners = [];
+
+    const checkDeviceStatus = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+
+        const hasAudioDevice = devices.some(
+          (device) => device.kind === "audioinput",
+        );
+
+        const hasVideoDevice = devices.some(
+          (device) => device.kind === "videoinput",
+        );
+
+        setAudioDeviceAvailable(hasAudioDevice);
+        setVideoDeviceAvailable(hasVideoDevice);
+      } catch (error) {
+        console.error("Could not check media devices:", error);
+      }
+    };
+
+    const handlePermissionChange = async (type, permission) => {
+      const denied = permission.state === "denied";
+
+      if (type === "microphone") {
+        setAudioPermissionDenied(denied);
+        audioPermissionDeniedRef.current = denied;
+
+        if (denied) {
+          removeMicrophone();
+        } else if (audioPermissionDeniedRef.current === false) {
+          await restoreMicrophone();
+        }
+      }
+
+      if (type === "camera") {
+        setVideoPermissionDenied(denied);
+        videoPermissionDeniedRef.current = denied;
+
+        if (denied) {
+          removeCamera();
+        } else if (videoPermissionDeniedRef.current === false) {
+          await restoreCamera();
+        }
+      }
+    };
+
+    const setupPermissionListeners = async () => {
+      if (!navigator.permissions?.query) {
+        return;
+      }
+
+      try {
+        const microphonePermission = await navigator.permissions.query({
+          name: "microphone",
+        });
+
+        const cameraPermission = await navigator.permissions.query({
+          name: "camera",
+        });
+
+        setAudioPermissionDenied(microphonePermission.state === "denied");
+
+        setVideoPermissionDenied(cameraPermission.state === "denied");
+
+        audioPermissionDeniedRef.current =
+          microphonePermission.state === "denied";
+
+        videoPermissionDeniedRef.current = cameraPermission.state === "denied";
+
+        const microphoneChange = async () => {
+          const wasDenied = audioPermissionDeniedRef.current;
+
+          const isDenied = microphonePermission.state === "denied";
+
+          setAudioPermissionDenied(isDenied);
+
+          audioPermissionDeniedRef.current = isDenied;
+
+          if (isDenied && !wasDenied) {
+            removeMicrophone();
+          }
+
+          if (!isDenied && wasDenied) {
+            await restoreMicrophone();
+          }
+        };
+
+        const cameraChange = async () => {
+          const wasDenied = videoPermissionDeniedRef.current;
+
+          const isDenied = cameraPermission.state === "denied";
+
+          setVideoPermissionDenied(isDenied);
+
+          videoPermissionDeniedRef.current = isDenied;
+
+          if (isDenied && !wasDenied) {
+            removeCamera();
+          }
+
+          if (!isDenied && wasDenied) {
+            await restoreCamera();
+          }
+        };
+
+        microphonePermission.onchange = microphoneChange;
+
+        cameraPermission.onchange = cameraChange;
+
+        permissionListeners = [
+          {
+            permission: microphonePermission,
+            handler: microphoneChange,
+          },
+          {
+            permission: cameraPermission,
+            handler: cameraChange,
+          },
+        ];
+      } catch (error) {
+        console.error("Permission monitoring error:", error);
+      }
+    };
+
+    checkDeviceStatus();
+    setupPermissionListeners();
+
+    const handleDeviceChange = () => {
+      checkDeviceStatus();
+    };
+
+    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+
+    return () => {
+      navigator.mediaDevices.removeEventListener(
+        "devicechange",
+        handleDeviceChange,
+      );
+
+      permissionListeners.forEach(({ permission, handler }) => {
+        permission.onchange = null;
+      });
+    };
+  }, [
+    enabled,
+    removeMicrophone,
+    removeCamera,
+    restoreMicrophone,
+    restoreCamera,
+  ]);
+
+  // --------------------------------------------------
+  // Create peer connection
+  // --------------------------------------------------
+
   const createPeerConnection = useCallback((targetSocketId, targetUser) => {
     if (peersRef.current.has(targetSocketId)) {
       return peersRef.current.get(targetSocketId);
@@ -67,14 +490,13 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
     const peer = new RTCPeerConnection(ICE_SERVERS);
 
-    // Add local tracks
+    // Add current local tracks
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         peer.addTrack(track, localStreamRef.current);
       });
     }
 
-    // Handle ICE candidates
     peer.onicecandidate = (event) => {
       if (event.candidate) {
         socket.emit("ice-candidate", {
@@ -85,7 +507,6 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
       }
     };
 
-    // Handle incoming remote stream tracks
     peer.ontrack = (event) => {
       const remoteStream = event.streams[0];
 
@@ -125,14 +546,19 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     return peer;
   }, []);
 
-  // Main WebRTC & Socket signaling setup
+  // --------------------------------------------------
+  // WebRTC + Socket setup
+  // --------------------------------------------------
+
   useEffect(() => {
-    if (!roomId || !user || !enabled) return;
+    if (!roomId || !user || !enabled) {
+      return;
+    }
 
     let isMounted = true;
 
     const startSession = async () => {
-      const stream = await initLocalStream();
+      await initLocalStream();
 
       if (!isMounted) return;
 
@@ -140,16 +566,15 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         socket.connect();
       }
 
-      // Join room
       socket.emit("join-room", {
         roomId,
         user,
-        audioEnabled: true,
-        videoEnabled: true,
+        audioEnabled: !audioPermissionDeniedRef.current,
+        videoEnabled: !videoPermissionDeniedRef.current,
         screenSharing: false,
       });
 
-      // 1. Receive existing users
+      // Existing users
       socket.on("all-users", (existingUsers) => {
         existingUsers.forEach((existingUser) => {
           const peer = createPeerConnection(
@@ -167,11 +592,11 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
                 sdp: peer.localDescription,
               });
             })
-            .catch((err) => console.error("Error creating offer:", err));
+            .catch((error) => console.error("Error creating offer:", error));
         });
       });
 
-      // 2. Someone new joined
+      // New user joined
       socket.on("user-joined", (newUser) => {
         toast(`${newUser.userName} joined the meeting`, {
           icon: "👋",
@@ -180,7 +605,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         createPeerConnection(newUser.socketId, newUser);
       });
 
-      // 3. Receive offer
+      // Offer
       socket.on("offer", async ({ callerSocketId, sdp, callerUser }) => {
         const peer = createPeerConnection(callerSocketId, callerUser);
 
@@ -196,38 +621,38 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
             responderSocketId: socket.id,
             sdp: peer.localDescription,
           });
-        } catch (err) {
-          console.error("Error handling offer:", err);
+        } catch (error) {
+          console.error("Error handling offer:", error);
         }
       });
 
-      // 4. Receive answer
+      // Answer
       socket.on("answer", async ({ responderSocketId, sdp }) => {
         const peer = peersRef.current.get(responderSocketId);
 
         if (peer) {
           try {
             await peer.setRemoteDescription(new RTCSessionDescription(sdp));
-          } catch (err) {
-            console.error("Error setting remote description from answer:", err);
+          } catch (error) {
+            console.error("Error setting remote description:", error);
           }
         }
       });
 
-      // 5. Receive ICE candidate
+      // ICE candidate
       socket.on("ice-candidate", async ({ senderSocketId, candidate }) => {
         const peer = peersRef.current.get(senderSocketId);
 
         if (peer && candidate) {
           try {
             await peer.addIceCandidate(new RTCIceCandidate(candidate));
-          } catch (err) {
-            console.error("Error adding ICE candidate:", err);
+          } catch (error) {
+            console.error("Error adding ICE candidate:", error);
           }
         }
       });
 
-      // 6. Remote audio toggle
+      // Remote microphone toggle
       socket.on("user-toggled-audio", ({ socketId, audioEnabled }) => {
         setRemoteUsers((prev) =>
           prev.map((u) =>
@@ -241,7 +666,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         );
       });
 
-      // 7. Remote video toggle
+      // Remote camera toggle
       socket.on("user-toggled-video", ({ socketId, videoEnabled }) => {
         setRemoteUsers((prev) =>
           prev.map((u) =>
@@ -255,7 +680,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         );
       });
 
-      // 8. Remote screen sharing toggle
+      // Remote screen sharing
       socket.on("user-toggled-screen-share", ({ socketId, screenSharing }) => {
         setRemoteUsers((prev) =>
           prev.map((u) =>
@@ -269,7 +694,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         );
       });
 
-      // 9. Peer left
+      // User left
       socket.on("user-left", ({ socketId, user: leftUser }) => {
         if (leftUser) {
           toast(`${leftUser.userName} left the meeting`);
@@ -285,7 +710,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         setRemoteUsers((prev) => prev.filter((u) => u.socketId !== socketId));
       });
 
-      // 10. Meeting ended
+      // Meeting ended
       socket.on("meeting-ended", ({ message }) => {
         toast.error(message || "This meeting has ended");
 
@@ -301,26 +726,22 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     return () => {
       isMounted = false;
 
-      // Stop screen share if active
       if (screenStreamRef.current) {
         screenStreamRef.current.getTracks().forEach((track) => track.stop());
 
         screenStreamRef.current = null;
       }
 
-      // Stop camera/microphone
       if (cameraStreamRef.current) {
         cameraStreamRef.current.getTracks().forEach((track) => track.stop());
       }
 
       localStreamRef.current = null;
 
-      // Close peer connections
       peersRef.current.forEach((peer) => peer.close());
 
       peersRef.current.clear();
 
-      // Remove socket listeners
       socket.off("all-users");
       socket.off("user-joined");
       socket.off("offer");
@@ -343,47 +764,69 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     onMeetingEnded,
   ]);
 
+  // --------------------------------------------------
   // Toggle microphone
-  const toggleAudio = () => {
-    if (!localStreamRef.current) return;
+  // --------------------------------------------------
 
-    const audioTrack = localStreamRef.current.getAudioTracks()[0];
-
-    if (audioTrack) {
-      const newState = !audioEnabled;
-
-      audioTrack.enabled = newState;
-
-      setAudioEnabled(newState);
-
-      socket.emit("toggle-audio", {
-        roomId,
-        audioEnabled: newState,
-      });
+  const toggleAudio = async () => {
+    if (audioEnabled) {
+      removeMicrophone();
+      return;
     }
+
+    await restoreMicrophone();
   };
 
+  // --------------------------------------------------
   // Toggle camera
-  const toggleVideo = () => {
-    if (!cameraStreamRef.current) return;
+  // --------------------------------------------------
 
-    const videoTrack = cameraStreamRef.current.getVideoTracks()[0];
-
-    if (videoTrack) {
-      const newState = !videoEnabled;
-
-      videoTrack.enabled = newState;
-
-      setVideoEnabled(newState);
-
-      socket.emit("toggle-video", {
-        roomId,
-        videoEnabled: newState,
-      });
+  const toggleVideo = async () => {
+    if (videoEnabled) {
+      removeCamera();
+      return;
     }
+
+    await restoreCamera();
   };
 
-  // Start / stop screen sharing
+  // --------------------------------------------------
+  // Screen sharing
+  // --------------------------------------------------
+
+  const stopScreenSharing = useCallback(() => {
+    const cameraTrack = cameraStreamRef.current?.getVideoTracks()[0] || null;
+
+    peersRef.current.forEach((peer) => {
+      const sender = peer
+        .getSenders()
+        .find((sender) => sender.track?.kind === "video");
+
+      if (sender) {
+        sender.replaceTrack(cameraTrack || null);
+      }
+    });
+
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach((track) => track.stop());
+
+      screenStreamRef.current = null;
+    }
+
+    const audioTrack = cameraStreamRef.current?.getAudioTracks()[0] || null;
+
+    updateLocalStream(audioTrack, cameraTrack);
+
+    setScreenSharing(false);
+
+    socket.emit("toggle-screen-share", {
+      roomId,
+      screenSharing: false,
+    });
+
+    toast("Screen sharing stopped.");
+  }, [roomId, updateLocalStream]);
+
   const toggleScreenShare = async () => {
     if (screenSharing) {
       stopScreenSharing();
@@ -406,7 +849,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
       screenStreamRef.current = screenStream;
 
-      // Replace camera video track with screen track
+      // Replace camera video with screen
       peersRef.current.forEach((peer) => {
         const sender = peer
           .getSenders()
@@ -417,13 +860,15 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         }
       });
 
-      // Keep microphone + screen in local preview
-      const audioTracks = cameraStreamRef.current?.getAudioTracks() || [];
+      const audioTrack = cameraStreamRef.current?.getAudioTracks()[0] || null;
 
-      const sharedStream = new MediaStream([...audioTracks, screenTrack]);
+      localStreamRef.current = new MediaStream([
+        ...(audioTrack ? [audioTrack] : []),
+        screenTrack,
+      ]);
 
-      localStreamRef.current = sharedStream;
-      setLocalStream(sharedStream);
+      setLocalStream(localStreamRef.current);
+
       setScreenSharing(true);
 
       socket.emit("toggle-screen-share", {
@@ -431,7 +876,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         screenSharing: true,
       });
 
-      // Browser's native "Stop sharing" button
+      // Browser native "Stop sharing"
       screenTrack.onended = () => {
         stopScreenSharing();
       };
@@ -448,45 +893,10 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     }
   };
 
-  const stopScreenSharing = useCallback(() => {
-    const cameraTrack = cameraStreamRef.current?.getVideoTracks()[0];
+  // --------------------------------------------------
+  // End meeting
+  // --------------------------------------------------
 
-    // Replace screen track with camera track
-    peersRef.current.forEach((peer) => {
-      const sender = peer
-        .getSenders()
-        .find((sender) => sender.track?.kind === "video");
-
-      if (sender && cameraTrack) {
-        sender.replaceTrack(cameraTrack);
-      }
-    });
-
-    // Stop screen tracks
-    if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach((track) => track.stop());
-
-      screenStreamRef.current = null;
-    }
-
-    // Restore local camera stream
-    if (cameraStreamRef.current) {
-      localStreamRef.current = cameraStreamRef.current;
-
-      setLocalStream(cameraStreamRef.current);
-    }
-
-    setScreenSharing(false);
-
-    socket.emit("toggle-screen-share", {
-      roomId,
-      screenSharing: false,
-    });
-
-    toast("Screen sharing stopped.");
-  }, [roomId]);
-
-  // End meeting for everyone
   const endMeeting = useCallback(() => {
     if (roomId) {
       socket.emit("end-meeting", {
@@ -498,9 +908,18 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
   return {
     localStream,
     remoteUsers,
+
     audioEnabled,
     videoEnabled,
+
+    audioDeviceAvailable,
+    videoDeviceAvailable,
+
+    audioPermissionDenied,
+    videoPermissionDenied,
+
     screenSharing,
+
     toggleAudio,
     toggleVideo,
     toggleScreenShare,

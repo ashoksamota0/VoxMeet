@@ -17,6 +17,10 @@ const ControlBar = ({
   roomId,
   audioEnabled,
   videoEnabled,
+  audioDeviceAvailable,
+  videoDeviceAvailable,
+  audioPermissionDenied,
+  videoPermissionDenied,
   screenSharing,
   onToggleAudio,
   onToggleVideo,
@@ -42,6 +46,26 @@ const ControlBar = ({
       setCopied(false);
     }, 2000);
   };
+
+  const microphoneUnavailable = !audioDeviceAvailable || audioPermissionDenied;
+
+  const cameraUnavailable = !videoDeviceAvailable || videoPermissionDenied;
+
+  const microphoneStatus = audioPermissionDenied
+    ? "Microphone permission required"
+    : !audioDeviceAvailable
+      ? "Microphone unavailable"
+      : audioEnabled
+        ? "Mute Microphone"
+        : "Unmute Microphone";
+
+  const cameraStatus = videoPermissionDenied
+    ? "Camera permission required"
+    : !videoDeviceAvailable
+      ? "Camera unavailable"
+      : videoEnabled
+        ? "Turn Off Camera"
+        : "Turn On Camera";
 
   return (
     <footer className="w-full bg-white/90 backdrop-blur-md border-t border-slate-200/80 px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 z-40 shadow-lg shadow-slate-200/50">
@@ -71,40 +95,68 @@ const ControlBar = ({
       {/* Center Controls */}
       <div className="flex items-center gap-1.5 sm:gap-3">
         {/* Audio Toggle */}
-        <button
-          onClick={onToggleAudio}
-          className={`p-3 sm:p-3.5 rounded-2xl transition-all cursor-pointer border ${
-            audioEnabled
-              ? "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200 shadow-xs"
-              : "bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-200 shadow-xs"
-          }`}
-          title={audioEnabled ? "Mute Microphone" : "Unmute Microphone"}
-          aria-label={audioEnabled ? "Mute Microphone" : "Unmute Microphone"}
-        >
-          {audioEnabled ? (
-            <MicIcon className="w-5 h-5" />
-          ) : (
-            <MicOffIcon className="w-5 h-5" />
+        <div className="relative group">
+          <button
+            onClick={onToggleAudio}
+            disabled={microphoneUnavailable}
+            className={`relative p-3 sm:p-3.5 rounded-2xl transition-all border ${
+              microphoneUnavailable
+                ? "bg-amber-50 text-amber-600 border-amber-200 cursor-not-allowed"
+                : audioEnabled
+                  ? "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200 shadow-xs cursor-pointer"
+                  : "bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-200 shadow-xs cursor-pointer"
+            }`}
+            aria-label={microphoneStatus}
+          >
+            {audioEnabled && !microphoneUnavailable ? (
+              <MicIcon className="w-5 h-5" />
+            ) : (
+              <MicOffIcon className="w-5 h-5" />
+            )}
+
+            {microphoneUnavailable && (
+              <span className="absolute -top-1 -right-1 size-3 rounded-full bg-amber-500 border-2 border-white" />
+            )}
+          </button>
+
+          {microphoneUnavailable && (
+            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block whitespace-nowrap rounded-lg bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg z-50">
+              {microphoneStatus}
+            </span>
           )}
-        </button>
+        </div>
 
         {/* Video Toggle */}
-        <button
-          onClick={onToggleVideo}
-          className={`p-3 sm:p-3.5 rounded-2xl transition-all cursor-pointer border ${
-            videoEnabled
-              ? "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200 shadow-xs"
-              : "bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-200 shadow-xs"
-          }`}
-          title={videoEnabled ? "Turn Off Camera" : "Turn On Camera"}
-          aria-label={videoEnabled ? "Turn Off Camera" : "Turn On Camera"}
-        >
-          {videoEnabled ? (
-            <VideoIcon className="w-5 h-5" />
-          ) : (
-            <VideoOffIcon className="w-5 h-5" />
+        <div className="relative group">
+          <button
+            onClick={onToggleVideo}
+            disabled={cameraUnavailable}
+            className={`relative p-3 sm:p-3.5 rounded-2xl transition-all border ${
+              cameraUnavailable
+                ? "bg-amber-50 text-amber-600 border-amber-200 cursor-not-allowed"
+                : videoEnabled
+                  ? "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200 shadow-xs cursor-pointer"
+                  : "bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-200 shadow-xs cursor-pointer"
+            }`}
+            aria-label={cameraStatus}
+          >
+            {videoEnabled && !cameraUnavailable ? (
+              <VideoIcon className="w-5 h-5" />
+            ) : (
+              <VideoOffIcon className="w-5 h-5" />
+            )}
+
+            {cameraUnavailable && (
+              <span className="absolute -top-1 -right-1 size-3 rounded-full bg-amber-500 border-2 border-white" />
+            )}
+          </button>
+
+          {cameraUnavailable && (
+            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block whitespace-nowrap rounded-lg bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg z-50">
+              {cameraStatus}
+            </span>
           )}
-        </button>
+        </div>
 
         {/* Screen Share Toggle */}
         <button
