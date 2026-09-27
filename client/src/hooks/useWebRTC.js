@@ -25,11 +25,19 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
   const [screenSharing, setScreenSharing] = useState(false);
 
+  // Connection quality:
+  // good / fair / poor
+  const [connectionQuality, setConnectionQuality] = useState("good");
+
   const peersRef = useRef(new Map());
 
   const localStreamRef = useRef(null);
   const cameraStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
+
+  // Stores previous WebRTC stats so that packet loss
+  // can be calculated between two consecutive checks.
+  const previousStatsRef = useRef(new Map());
 
   const audioPermissionDeniedRef = useRef(false);
   const videoPermissionDeniedRef = useRef(false);
@@ -352,23 +360,27 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
       const denied = permission.state === "denied";
 
       if (type === "microphone") {
+        const wasDenied = audioPermissionDeniedRef.current;
+
         setAudioPermissionDenied(denied);
         audioPermissionDeniedRef.current = denied;
 
-        if (denied) {
+        if (denied && !wasDenied) {
           removeMicrophone();
-        } else if (audioPermissionDeniedRef.current === false) {
+        } else if (!denied && wasDenied) {
           await restoreMicrophone();
         }
       }
 
       if (type === "camera") {
+        const wasDenied = videoPermissionDeniedRef.current;
+
         setVideoPermissionDenied(denied);
         videoPermissionDeniedRef.current = denied;
 
-        if (denied) {
+        if (denied && !wasDenied) {
           removeCamera();
-        } else if (videoPermissionDeniedRef.current === false) {
+        } else if (!denied && wasDenied) {
           await restoreCamera();
         }
       }
@@ -398,39 +410,11 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         videoPermissionDeniedRef.current = cameraPermission.state === "denied";
 
         const microphoneChange = async () => {
-          const wasDenied = audioPermissionDeniedRef.current;
-
-          const isDenied = microphonePermission.state === "denied";
-
-          setAudioPermissionDenied(isDenied);
-
-          audioPermissionDeniedRef.current = isDenied;
-
-          if (isDenied && !wasDenied) {
-            removeMicrophone();
-          }
-
-          if (!isDenied && wasDenied) {
-            await restoreMicrophone();
-          }
+          await handlePermissionChange("microphone", microphonePermission);
         };
 
         const cameraChange = async () => {
-          const wasDenied = videoPermissionDeniedRef.current;
-
-          const isDenied = cameraPermission.state === "denied";
-
-          setVideoPermissionDenied(isDenied);
-
-          videoPermissionDeniedRef.current = isDenied;
-
-          if (isDenied && !wasDenied) {
-            removeCamera();
-          }
-
-          if (!isDenied && wasDenied) {
-            await restoreCamera();
-          }
+          await handlePermissionChange("camera", cameraPermission);
         };
 
         microphonePermission.onchange = microphoneChange;
@@ -467,7 +451,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         handleDeviceChange,
       );
 
-      permissionListeners.forEach(({ permission, handler }) => {
+      permissionListeners.forEach(({ permission }) => {
         permission.onchange = null;
       });
     };
@@ -545,6 +529,250 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
     return peer;
   }, []);
+
+  // --------------------------------------------------
+  // Connection quality monitoring
+  // --------------------------------------------------
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    let isChecking = false;
+
+    const setPoorConnection = () => {
+      setConnectionQuality("poor");
+    };
+
+    const handleOffline = () => {
+      setConnectionQuality("poor");
+    };
+
+    const handleOnline = () => {
+      // We are online again, but WebRTC stats still need
+      // to confirm the actual media connection.
+      setConnectionQuality("fair");
+    };
+
+    // Browser-level internet status
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    const checkConnectionQuality = async () => {
+      // Most important check:
+      // If the browser says it is offline, immediately mark
+      // the connection as poor instead of waiting for WebRTC stats.
+      if (!navigator.onLine) {
+        setPoorConnection();
+        return;
+      }
+
+      if (isChecking) {
+        return;
+      }
+
+      isChecking = true;
+
+      try {
+        const peers = Array.from(peersRef.current.entries());
+
+        // No remote participant yet.
+        // The user's own internet can still be online.
+        if (peers.length === 0) {
+          setConnectionQuality(navigator.onLine ? "good" : "poor");
+          return;
+        }
+
+        const qualities = [];
+
+        for (const [socketId, peer] of peers) {
+          if (!peer || peer.connectionState === "closed") {
+            continue;
+          }
+
+          // If the WebRTC connection has failed,
+          // the connection is definitely poor.
+          if (
+            peer.connectionState === "failed" ||
+            peer.iceConnectionState === "failed"
+          ) {
+            qualities.push("poor");
+            continue;
+          }
+
+          // disconnected means the peer connection has
+          // temporarily lost connectivity.
+          if (
+            peer.connectionState === "disconnected" ||
+            peer.iceConnectionState === "disconnected"
+          ) {
+            qualities.push("poor");
+            continue;
+          }
+
+          try {
+            const stats = await peer.getStats();
+
+            let rtt = null;
+
+            let packetsLost = 0;
+            let packetsReceived = 0;
+
+            let packetsSent = 0;
+            let packetsLostOutbound = 0;
+
+            stats.forEach((report) => {
+              // Round Trip Time
+              if (
+                report.type === "candidate-pair" &&
+                report.state === "succeeded" &&
+                typeof report.currentRoundTripTime === "number"
+              ) {
+                const currentRtt = report.currentRoundTripTime * 1000;
+
+                // Keep the highest RTT because we want to
+                // detect the worst connection condition.
+                if (rtt === null || currentRtt > rtt) {
+                  rtt = currentRtt;
+                }
+              }
+
+              // Incoming video packet statistics
+              if (
+                report.type === "inbound-rtp" &&
+                (report.kind === "video" || report.mediaType === "video")
+              ) {
+                packetsLost += report.packetsLost || 0;
+                packetsReceived += report.packetsReceived || 0;
+              }
+
+              // Outgoing video packet statistics
+              if (
+                report.type === "outbound-rtp" &&
+                (report.kind === "video" || report.mediaType === "video")
+              ) {
+                packetsSent += report.packetsSent || 0;
+                packetsLostOutbound += report.packetsLost || 0;
+              }
+            });
+
+            const previous = previousStatsRef.current.get(socketId);
+
+            let packetLossPercent = 0;
+
+            if (previous) {
+              const receivedDelta = Math.max(
+                0,
+                packetsReceived - previous.packetsReceived,
+              );
+
+              const lostDelta = Math.max(0, packetsLost - previous.packetsLost);
+
+              const sentDelta = Math.max(0, packetsSent - previous.packetsSent);
+
+              const lostOutboundDelta = Math.max(
+                0,
+                packetsLostOutbound - previous.packetsLostOutbound,
+              );
+
+              const totalInboundPackets = receivedDelta + lostDelta;
+
+              const totalOutboundPackets = sentDelta + lostOutboundDelta;
+
+              const inboundLoss =
+                totalInboundPackets > 0
+                  ? (lostDelta / totalInboundPackets) * 100
+                  : 0;
+
+              const outboundLoss =
+                totalOutboundPackets > 0
+                  ? (lostOutboundDelta / totalOutboundPackets) * 100
+                  : 0;
+
+              packetLossPercent = Math.max(inboundLoss, outboundLoss);
+            }
+
+            previousStatsRef.current.set(socketId, {
+              packetsLost,
+              packetsReceived,
+              packetsSent,
+              packetsLostOutbound,
+            });
+
+            // If RTT is not available yet, use the
+            // WebRTC connection state.
+            if (rtt === null) {
+              if (
+                peer.connectionState === "connected" &&
+                peer.iceConnectionState === "connected"
+              ) {
+                qualities.push("good");
+              } else {
+                qualities.push("fair");
+              }
+
+              continue;
+            }
+
+            let quality = "good";
+
+            if (rtt > 300 || packetLossPercent > 5) {
+              quality = "poor";
+            } else if (rtt > 150 || packetLossPercent > 2) {
+              quality = "fair";
+            }
+
+            qualities.push(quality);
+          } catch (error) {
+            console.error("Could not read WebRTC connection stats:", error);
+
+            // If stats cannot be read while the peer is
+            // not connected, treat it as poor.
+            if (
+              peer.connectionState !== "connected" ||
+              peer.iceConnectionState !== "connected"
+            ) {
+              qualities.push("poor");
+            }
+          }
+        }
+
+        // Browser went offline while we were reading stats.
+        if (!navigator.onLine) {
+          setPoorConnection();
+          return;
+        }
+
+        // Use the worst connection among all participants.
+        if (qualities.includes("poor")) {
+          setConnectionQuality("poor");
+        } else if (qualities.includes("fair")) {
+          setConnectionQuality("fair");
+        } else if (qualities.includes("good")) {
+          setConnectionQuality("good");
+        } else {
+          setConnectionQuality("fair");
+        }
+      } finally {
+        isChecking = false;
+      }
+    };
+
+    // Check immediately
+    checkConnectionQuality();
+
+    // Check every 3 seconds
+    const interval = setInterval(checkConnectionQuality, 3000);
+
+    return () => {
+      clearInterval(interval);
+
+      window.removeEventListener("offline", handleOffline);
+
+      window.removeEventListener("online", handleOnline);
+
+      previousStatsRef.current.clear();
+    };
+  }, [enabled]);
 
   // --------------------------------------------------
   // WebRTC + Socket setup
@@ -707,6 +935,9 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
           peersRef.current.delete(socketId);
         }
 
+        // Remove old stats for the participant
+        previousStatsRef.current.delete(socketId);
+
         setRemoteUsers((prev) => prev.filter((u) => u.socketId !== socketId));
       });
 
@@ -741,6 +972,8 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
       peersRef.current.forEach((peer) => peer.close());
 
       peersRef.current.clear();
+
+      previousStatsRef.current.clear();
 
       socket.off("all-users");
       socket.off("user-joined");
@@ -919,6 +1152,10 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     videoPermissionDenied,
 
     screenSharing,
+
+    // Connection quality:
+    // "good" | "fair" | "poor"
+    connectionQuality,
 
     toggleAudio,
     toggleVideo,
